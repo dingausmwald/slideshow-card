@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 
-const CARD_VERSION = '0.9.1';
+const CARD_VERSION = '0.10.0';
 
 
 console.info(
@@ -17,6 +17,7 @@ class SlideshowCard extends LitElement {
     _primaryIdx: { state: true },
     _transientIdx: { state: true },
     _transientOpaque: { state: true },
+    _pendingSwap: { state: true },
     _playing: { state: true },
     _loading: { state: true },
     _error: { state: true },
@@ -31,6 +32,7 @@ class SlideshowCard extends LitElement {
     this._primaryIdx = null;
     this._transientIdx = null;
     this._transientOpaque = false;
+    this._pendingSwap = null;
     this._playing = true;
     this._loading = true;
     this._error = null;
@@ -40,9 +42,10 @@ class SlideshowCard extends LitElement {
       this._fullscreen = !!document.fullscreenElement;
     };
     this._urlCache = new Map();
-    this._loadingIdx = null;  // idx currently being loaded (single in-flight)
+    this._loadingIdx = null;
     this._loadedIdx = new Set();
     this._loadInflight = false;
+    this._loadGen = 0;
     this._advanceTimer = null;
     this._controlsTimer = null;
     this._swipe = null;
@@ -115,6 +118,7 @@ class SlideshowCard extends LitElement {
       this._primaryIdx = null;
       this._transientIdx = null;
       this._transientOpaque = false;
+      this._pendingSwap = null;
       this._loadingIdx = null;
       this._loadedIdx.clear();
       this._loadInflight = false;
@@ -144,28 +148,38 @@ class SlideshowCard extends LitElement {
     this._doLoad();
   }
 
+  _cancelLoad() {
+    this._loadGen++;
+    this._loadInflight = false;
+    this._loadingIdx = null;
+  }
+
   async _doLoad() {
     if (this._children.length === 0) return;
     const idx = this._index;
     if (this._loadedIdx.has(idx)) {
-      this._maybeSwapLayer();
+      this._swapTo(idx);
       return;
     }
     const item = this._children[idx];
     if (!item) return;
+    const gen = ++this._loadGen;
     this._loadInflight = true;
     this._loadingIdx = idx;
     let url;
     try {
       url = await this._resolveUrl(item);
     } catch {
-      this._loadingIdx = null;
-      this._loadInflight = false;
+      if (gen === this._loadGen) {
+        this._loadInflight = false;
+        this._loadingIdx = null;
+      }
       return;
     }
+    if (gen !== this._loadGen) return;
     if (this._children[idx] !== item) {
-      this._loadingIdx = null;
       this._loadInflight = false;
+      this._loadingIdx = null;
       return;
     }
     const img = new Image();
@@ -174,11 +188,12 @@ class SlideshowCard extends LitElement {
       img.onload = img.onerror = resolve;
       img.src = url;
     });
-    this._loadingIdx = null;
+    if (gen !== this._loadGen) return;
     this._loadInflight = false;
+    this._loadingIdx = null;
     if (img.naturalWidth > 0) {
       this._loadedIdx.add(idx);
-      this._swapTo(idx);
+      if (idx === this._index) this._swapTo(idx);
     }
     if (this._index !== idx) this._doLoad();
   }
@@ -194,9 +209,11 @@ class SlideshowCard extends LitElement {
       this.requestUpdate();
       return;
     }
-    if (this._primaryIdx === idx) return;
+    if (this._primaryIdx === idx && this._transientIdx === null) return;
+    if (this._transientIdx === idx) return;
     if (this._transientIdx !== null) {
-      this._primaryIdx = this._transientIdx;
+      this._pendingSwap = idx;
+      return;
     }
     this._transientIdx = idx;
     this._transientOpaque = false;
@@ -217,6 +234,11 @@ class SlideshowCard extends LitElement {
     this._transientIdx = null;
     this._transientOpaque = false;
     this.requestUpdate();
+    if (this._pendingSwap !== null) {
+      const next = this._pendingSwap;
+      this._pendingSwap = null;
+      this._swapTo(next);
+    }
   }
 
   _startAdvance() {
@@ -283,6 +305,7 @@ class SlideshowCard extends LitElement {
     e.stopPropagation();
     this._wasPlayingBeforeScrub = this._playing;
     this._stopAdvance();
+    this._cancelLoad();
   }
 
   _onScrubEnd(e) {
