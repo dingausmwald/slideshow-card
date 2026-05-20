@@ -1,8 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 
-const CARD_VERSION = '0.8.0';
-
-const MAX_INFLIGHT = 6;
+const CARD_VERSION = '0.9.0';
 
 
 console.info(
@@ -42,8 +40,9 @@ class SlideshowCard extends LitElement {
       this._fullscreen = !!document.fullscreenElement;
     };
     this._urlCache = new Map();
-    this._loadingIdx = new Map(); // idx → Image instance (abortable via .src='')
-    this._loadedIdx = new Set();  // idx of fully-loaded images (in browser cache)
+    this._loadingIdx = null;  // idx currently being loaded (single in-flight)
+    this._loadedIdx = new Set();
+    this._loadInflight = false;
     this._advanceTimer = null;
     this._controlsTimer = null;
     this._swipe = null;
@@ -116,11 +115,12 @@ class SlideshowCard extends LitElement {
       this._primaryIdx = null;
       this._transientIdx = null;
       this._transientOpaque = false;
-      this._loadingIdx.clear();
+      this._loadingIdx = null;
       this._loadedIdx.clear();
+      this._loadInflight = false;
       this._loading = false;
       if (items.length > 0) {
-        this._scheduleLoad();
+        this._kickLoad();
         this._startAdvance();
       }
     } catch (e) {
@@ -139,43 +139,48 @@ class SlideshowCard extends LitElement {
     return r.url;
   }
 
-  _scheduleLoad() {
-    if (this._children.length === 0) return;
-    const idx = this._index;
-    if (this._loadedIdx.has(idx) || this._loadingIdx.has(idx)) return;
-    while (this._loadingIdx.size >= MAX_INFLIGHT) {
-      const oldest = this._loadingIdx.keys().next().value;
-      const oldImg = this._loadingIdx.get(oldest);
-      if (oldImg) oldImg.src = '';
-      this._loadingIdx.delete(oldest);
-    }
-    this._startLoad(idx);
+  _kickLoad() {
+    if (this._loadInflight) return;
+    this._doLoad();
   }
 
-  async _startLoad(idx) {
+  async _doLoad() {
+    if (this._children.length === 0) return;
+    const idx = this._index;
+    if (this._loadedIdx.has(idx)) {
+      this._maybeSwapLayer();
+      return;
+    }
     const item = this._children[idx];
     if (!item) return;
+    this._loadInflight = true;
+    this._loadingIdx = idx;
     let url;
     try {
       url = await this._resolveUrl(item);
     } catch {
+      this._loadingIdx = null;
+      this._loadInflight = false;
       return;
     }
-    if (this._children[idx] !== item) return;
+    if (this._children[idx] !== item) {
+      this._loadingIdx = null;
+      this._loadInflight = false;
+      return;
+    }
     const img = new Image();
     img.decoding = 'async';
-    this._loadingIdx.set(idx, img);
-    img.onload = () => {
-      if (this._loadingIdx.get(idx) !== img) return;
-      this._loadingIdx.delete(idx);
+    await new Promise((resolve) => {
+      img.onload = img.onerror = resolve;
+      img.src = url;
+    });
+    this._loadingIdx = null;
+    this._loadInflight = false;
+    if (img.naturalWidth > 0) {
       this._loadedIdx.add(idx);
       if (idx === this._index) this._maybeSwapLayer();
-    };
-    img.onerror = () => {
-      if (this._loadingIdx.get(idx) !== img) return;
-      this._loadingIdx.delete(idx);
-    };
-    img.src = url;
+    }
+    if (this._index !== idx) this._doLoad();
   }
 
   _maybeSwapLayer() {
@@ -239,7 +244,7 @@ class SlideshowCard extends LitElement {
     if (idx < 0 || idx >= this._children.length) return;
     const wasNew = idx !== this._index;
     this._index = idx;
-    this._scheduleLoad();
+    this._kickLoad();
     this._maybeSwapLayer();
     if (wasNew) this._startAdvance();
   }
@@ -262,7 +267,7 @@ class SlideshowCard extends LitElement {
     const idx = Number(e.target.value);
     if (idx === this._index) return;
     this._index = idx;
-    this._scheduleLoad();
+    this._kickLoad();
     this._maybeSwapLayer();
   }
 
