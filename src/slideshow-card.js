@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 
-const CARD_VERSION = '0.3.0';
+const CARD_VERSION = '0.3.1';
 
 const PRELOAD_WINDOW = 2;
 const MAX_CONCURRENT = 2;
@@ -23,6 +23,7 @@ class SlideshowCard extends LitElement {
     _loading: { state: true },
     _error: { state: true },
     _showControls: { state: true },
+    _fullscreen: { state: true },
   };
 
   constructor() {
@@ -36,6 +37,10 @@ class SlideshowCard extends LitElement {
     this._loading = true;
     this._error = null;
     this._showControls = false;
+    this._fullscreen = false;
+    this._onFullscreenChange = () => {
+      this._fullscreen = !!document.fullscreenElement;
+    };
     this._urlCache = new Map();
     this._loadingIdx = new Map(); // idx → Image instance (abortable via .src='')
     this._loadedIdx = new Set();  // idx of fully-loaded images (in browser cache)
@@ -78,11 +83,13 @@ class SlideshowCard extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
+    document.addEventListener('fullscreenchange', this._onFullscreenChange);
     this._loadFolder();
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
+    document.removeEventListener('fullscreenchange', this._onFullscreenChange);
     this._stopAdvance();
     if (this._controlsTimer) clearTimeout(this._controlsTimer);
   }
@@ -366,20 +373,28 @@ class SlideshowCard extends LitElement {
               @click=${this._stop}
             />
             <div class="bar">
-              <button class="ctrl" title="Zurück"
+              <ha-icon-button label="Zurück"
                 @pointerdown=${this._stop}
-                @click=${(e) => { e.stopPropagation(); this._prev(); }}>‹</button>
-              <button class="ctrl" title=${this._playing ? 'Pause' : 'Play'}
+                @click=${(e) => { e.stopPropagation(); this._prev(); }}>
+                <ha-icon icon="mdi:chevron-left"></ha-icon>
+              </ha-icon-button>
+              <ha-icon-button label=${this._playing ? 'Pause' : 'Play'}
                 @pointerdown=${this._stop}
-                @click=${(e) => { e.stopPropagation(); this._togglePlay(); }}>${this._playing ? '⏸' : '▶'}</button>
-              <button class="ctrl" title="Vor"
+                @click=${(e) => { e.stopPropagation(); this._togglePlay(); }}>
+                <ha-icon icon=${this._playing ? 'mdi:pause' : 'mdi:play'}></ha-icon>
+              </ha-icon-button>
+              <ha-icon-button label="Vor"
                 @pointerdown=${this._stop}
-                @click=${(e) => { e.stopPropagation(); this._next(); }}>›</button>
+                @click=${(e) => { e.stopPropagation(); this._next(); }}>
+                <ha-icon icon="mdi:chevron-right"></ha-icon>
+              </ha-icon-button>
               <span class="counter">${this._index + 1} / ${total}</span>
               <span class="name">${label}</span>
-              <button class="ctrl fs" title="Vollbild"
+              <ha-icon-button label="Vollbild"
                 @pointerdown=${this._stop}
-                @click=${(e) => { e.stopPropagation(); this._toggleFullscreen(); }}>⛶</button>
+                @click=${(e) => { e.stopPropagation(); this._toggleFullscreen(); }}>
+                <ha-icon icon=${this._fullscreen ? 'mdi:fullscreen-exit' : 'mdi:fullscreen'}></ha-icon>
+              </ha-icon-button>
             </div>
           </div>
         </div>
@@ -456,6 +471,7 @@ class SlideshowCard extends LitElement {
       left: 0;
       right: 0;
       bottom: 0;
+      z-index: 3;
       padding: 8px 12px 10px;
       background: linear-gradient(to top, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0));
       opacity: 0;
@@ -473,23 +489,10 @@ class SlideshowCard extends LitElement {
       accent-color: var(--primary-color, #03a9f4);
       cursor: pointer;
     }
-    .ctrl {
-      background: transparent;
-      border: none;
+    .bar ha-icon-button {
+      --mdc-icon-button-size: 36px;
+      --mdc-icon-size: 22px;
       color: #fff;
-      font-size: 1.4rem;
-      line-height: 1;
-      padding: 4px 8px;
-      cursor: pointer;
-      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
-      transition: opacity 0.15s ease;
-      opacity: 0.85;
-    }
-    .ctrl:hover {
-      opacity: 1;
-    }
-    .ctrl:active {
-      transform: scale(0.92);
     }
     .bar {
       display: flex;
@@ -510,10 +513,6 @@ class SlideshowCard extends LitElement {
       text-overflow: ellipsis;
       white-space: nowrap;
       font-variant-numeric: tabular-nums;
-    }
-    .ctrl.fs {
-      margin-left: 4px;
-      font-size: 1.1rem;
     }
   `;
 }
