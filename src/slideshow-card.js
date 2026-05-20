@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 
-const CARD_VERSION = '0.1.0';
+const CARD_VERSION = '0.2.0';
 
 console.info(
   `%c slideshow-card %c ${CARD_VERSION} `,
@@ -13,6 +13,9 @@ class SlideshowCard extends LitElement {
     hass: { attribute: false },
     _children: { state: true },
     _index: { state: true },
+    _layerAIdx: { state: true },
+    _layerBIdx: { state: true },
+    _topIsA: { state: true },
     _playing: { state: true },
     _loading: { state: true },
     _error: { state: true },
@@ -23,6 +26,9 @@ class SlideshowCard extends LitElement {
     super();
     this._children = [];
     this._index = 0;
+    this._layerAIdx = null;
+    this._layerBIdx = null;
+    this._topIsA = true;
     this._playing = true;
     this._loading = true;
     this._error = null;
@@ -40,7 +46,17 @@ class SlideshowCard extends LitElement {
       interval: 3,
       order: 'desc',
       ...config,
+      folder: this._normalizeFolder(config.folder),
     };
+  }
+
+  _normalizeFolder(input) {
+    const s = String(input).trim().replace(/\/+$/, '');
+    if (s.startsWith('media-source://')) return s;
+    if (s.startsWith('/media/')) return 'media-source://media_source/local/' + s.slice(7);
+    if (s.startsWith('/local/')) return 'media-source://media_source/local/' + s.slice(7);
+    if (s.startsWith('/')) return 'media-source://media_source/local' + s;
+    return 'media-source://media_source/local/' + s;
   }
 
   static getConfigElement() {
@@ -85,10 +101,15 @@ class SlideshowCard extends LitElement {
       if (this._config.order === 'asc') items.reverse();
       this._children = items;
       this._index = 0;
+      this._layerAIdx = items.length > 0 ? 0 : null;
+      this._layerBIdx = null;
+      this._topIsA = true;
       this._loading = false;
       if (items.length > 0) {
-        this._preload(0);
+        await this._resolve(0);
         this._preload(1);
+        this._preload(items.length - 1);
+        this.requestUpdate();
         this._startAdvance();
       }
     } catch (e) {
@@ -143,11 +164,27 @@ class SlideshowCard extends LitElement {
     this._goTo((this._index - 1 + this._children.length) % this._children.length);
   }
 
-  _goTo(idx) {
+  async _goTo(idx) {
+    if (idx === this._index || idx < 0 || idx >= this._children.length) return;
+    await this._resolve(idx);
+    if (this._topIsA) {
+      this._layerBIdx = idx;
+    } else {
+      this._layerAIdx = idx;
+    }
+    this._topIsA = !this._topIsA;
     this._index = idx;
     this._preload(idx + 1);
     this._preload(idx - 1);
     this._startAdvance();
+  }
+
+  _extractDate(name) {
+    if (!name) return '';
+    const m = name.match(/(\d{4})[-_](\d{2})[-_](\d{2})[-_ T](\d{2})[-_:](\d{2})(?:[-_:](\d{2}))?/);
+    if (!m) return name;
+    const [, y, mo, d, h, mi, se] = m;
+    return `${d}.${mo}.${y} ${h}:${mi}${se ? ':' + se : ''}`;
   }
 
   _togglePlay() {
@@ -173,11 +210,16 @@ class SlideshowCard extends LitElement {
     const dx = e.clientX - this._swipe.x;
     const dy = e.clientY - this._swipe.y;
     const dt = Date.now() - this._swipe.t;
+    const wasSwipe = Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5 && dt < 600;
     this._swipe = null;
-    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5 && dt < 600) {
+    if (wasSwipe) {
       if (dx < 0) this._next();
       else this._prev();
     }
+  }
+
+  _stop(e) {
+    e.stopPropagation();
   }
 
   _onPointerCancel() {
@@ -192,20 +234,21 @@ class SlideshowCard extends LitElement {
     }, 2500);
   }
 
-  _renderImage(idx, layerClass) {
+  _renderLayer(idx, isTop) {
+    if (idx === null || idx === undefined) {
+      return html`<div class="layer ${isTop ? 'visible' : ''}"></div>`;
+    }
     const item = this._children[idx];
-    if (!item) return nothing;
-    const url = this._urlCache.get(item.media_content_id);
+    const url = item ? this._urlCache.get(item.media_content_id) : null;
     if (!url) {
-      this._resolve(idx).then(() => this.requestUpdate());
-      return nothing;
+      return html`<div class="layer ${isTop ? 'visible' : ''}"></div>`;
     }
     return html`<img
-      class=${layerClass}
+      class="layer ${isTop ? 'visible' : ''}"
       src=${url}
       decoding="async"
       draggable="false"
-      alt=${item.title || ''}
+      alt=""
     />`;
   }
 
@@ -222,6 +265,7 @@ class SlideshowCard extends LitElement {
     }
     const total = this._children.length;
     const current = this._children[this._index];
+    const label = this._extractDate(current?.title);
     return html`
       <ha-card .header=${this._config.title || nothing}>
         <div
@@ -230,9 +274,9 @@ class SlideshowCard extends LitElement {
           @pointerup=${this._onPointerUp}
           @pointercancel=${this._onPointerCancel}
           @mousemove=${this._showControlsTransient}
-          @click=${this._togglePlay}
         >
-          ${this._renderImage(this._index, 'layer current')}
+          ${this._renderLayer(this._layerAIdx, this._topIsA)}
+          ${this._renderLayer(this._layerBIdx, !this._topIsA)}
           <div class="overlay">
             <input
               class="scrub"
@@ -241,12 +285,21 @@ class SlideshowCard extends LitElement {
               max=${total - 1}
               .value=${String(this._index)}
               @input=${this._onSliderInput}
-              @click=${(e) => e.stopPropagation()}
+              @pointerdown=${this._stop}
+              @click=${this._stop}
             />
             <div class="bar">
+              <button class="ctrl" title="Zurück"
+                @pointerdown=${this._stop}
+                @click=${(e) => { e.stopPropagation(); this._prev(); }}>‹</button>
+              <button class="ctrl" title=${this._playing ? 'Pause' : 'Play'}
+                @pointerdown=${this._stop}
+                @click=${(e) => { e.stopPropagation(); this._togglePlay(); }}>${this._playing ? '⏸' : '▶'}</button>
+              <button class="ctrl" title="Vor"
+                @pointerdown=${this._stop}
+                @click=${(e) => { e.stopPropagation(); this._next(); }}>›</button>
               <span class="counter">${this._index + 1} / ${total}</span>
-              <span class="state">${this._playing ? '▶' : '⏸'}</span>
-              <span class="name">${current?.title || ''}</span>
+              <span class="name">${label}</span>
             </div>
           </div>
         </div>
@@ -285,7 +338,12 @@ class SlideshowCard extends LitElement {
       width: 100%;
       height: 100%;
       object-fit: contain;
+      opacity: 0;
+      transition: opacity 0.5s ease;
       will-change: opacity;
+    }
+    .layer.visible {
+      opacity: 1;
     }
     .overlay {
       position: absolute;
@@ -308,6 +366,24 @@ class SlideshowCard extends LitElement {
       margin: 0;
       accent-color: var(--primary-color, #03a9f4);
       cursor: pointer;
+    }
+    .ctrl {
+      background: transparent;
+      border: none;
+      color: #fff;
+      font-size: 1.4rem;
+      line-height: 1;
+      padding: 4px 8px;
+      cursor: pointer;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+      transition: opacity 0.15s ease;
+      opacity: 0.85;
+    }
+    .ctrl:hover {
+      opacity: 1;
+    }
+    .ctrl:active {
+      transform: scale(0.92);
     }
     .bar {
       display: flex;
