@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 
-const CARD_VERSION = '0.10.0';
+const CARD_VERSION = '0.11.0';
 
 
 console.info(
@@ -46,6 +46,7 @@ class SlideshowCard extends LitElement {
     this._loadedIdx = new Set();
     this._loadInflight = false;
     this._loadGen = 0;
+    this._scrubbing = false;
     this._advanceTimer = null;
     this._controlsTimer = null;
     this._swipe = null;
@@ -125,7 +126,6 @@ class SlideshowCard extends LitElement {
       this._loading = false;
       if (items.length > 0) {
         this._kickLoad();
-        this._startAdvance();
       }
     } catch (e) {
       this._loading = false;
@@ -193,7 +193,7 @@ class SlideshowCard extends LitElement {
     this._loadingIdx = null;
     if (img.naturalWidth > 0) {
       this._loadedIdx.add(idx);
-      if (idx === this._index) this._swapTo(idx);
+      if (!this._scrubbing || idx === this._index) this._swapTo(idx);
     }
     if (this._index !== idx) this._doLoad();
   }
@@ -207,6 +207,7 @@ class SlideshowCard extends LitElement {
     if (this._primaryIdx === null) {
       this._primaryIdx = idx;
       this.requestUpdate();
+      this._startAdvance();
       return;
     }
     if (this._primaryIdx === idx && this._transientIdx === null) return;
@@ -238,6 +239,8 @@ class SlideshowCard extends LitElement {
       const next = this._pendingSwap;
       this._pendingSwap = null;
       this._swapTo(next);
+    } else {
+      this._startAdvance();
     }
   }
 
@@ -267,11 +270,9 @@ class SlideshowCard extends LitElement {
 
   _goTo(idx) {
     if (idx < 0 || idx >= this._children.length) return;
-    const wasNew = idx !== this._index;
     this._index = idx;
     this._kickLoad();
     this._maybeSwapLayer();
-    if (wasNew) this._startAdvance();
   }
 
   _extractDate(name) {
@@ -303,15 +304,20 @@ class SlideshowCard extends LitElement {
 
   _onScrubStart(e) {
     e.stopPropagation();
+    this._scrubbing = true;
     this._wasPlayingBeforeScrub = this._playing;
     this._stopAdvance();
     this._cancelLoad();
   }
 
   _onScrubEnd(e) {
+    this._scrubbing = false;
     const idx = e?.target?.value !== undefined ? Number(e.target.value) : this._index;
     this._goTo(idx);
-    if (this._wasPlayingBeforeScrub) this._startAdvance();
+    if (this._wasPlayingBeforeScrub) {
+      this._playing = true;
+      this._startAdvance();
+    }
   }
 
   _onPointerDown(e) {
