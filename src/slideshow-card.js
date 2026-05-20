@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 
-const CARD_VERSION = '0.13.0';
+const CARD_VERSION = '0.14.0';
 
 
 console.info(
@@ -252,15 +252,52 @@ class SlideshowCard extends LitElement {
     this._stopAdvance();
     if (!this._playing) return;
     if (this._scrubbing) return;
-    const ms = Math.max(0.5, Number(this._interval) || 3) * 1000;
+    const intervalMs = Math.max(0.5, Number(this._interval) || 3) * 1000;
+    const ms = Math.max(100, intervalMs - 500);
     this._advanceTimer = setTimeout(() => this._next(), ms);
+    this._kickPreloadNext();
   }
 
-  _onSpeedInput(e) {
+  _kickPreloadNext() {
+    if (this._sideloadInflight) return;
+    if (!this._playing || this._scrubbing) return;
+    if (this._children.length < 2) return;
+    const nextIdx = (this._index + 1) % this._children.length;
+    if (this._loadedIdx.has(nextIdx)) return;
+    this._sideloadIdx(nextIdx);
+  }
+
+  async _sideloadIdx(idx) {
+    if (this._sideloadInflight) return;
+    this._sideloadInflight = true;
+    try {
+      const item = this._children[idx];
+      if (!item) return;
+      const url = await this._resolveUrl(item);
+      if (this._children[idx] !== item) return;
+      const img = new Image();
+      img.decoding = 'async';
+      await new Promise((resolve) => {
+        img.onload = img.onerror = resolve;
+        img.src = url;
+      });
+      if (img.naturalWidth > 0) this._loadedIdx.add(idx);
+    } catch {
+      /* ignore */
+    } finally {
+      this._sideloadInflight = false;
+    }
+  }
+
+  _slower(e) {
     e.stopPropagation();
-    const v = Number(e.target.value);
-    if (!Number.isFinite(v) || v <= 0) return;
-    this._interval = v;
+    this._interval = Math.min(30, Math.round((this._interval + 0.5) * 2) / 2);
+    if (this._playing && !this._scrubbing) this._startAdvance();
+  }
+
+  _faster(e) {
+    e.stopPropagation();
+    this._interval = Math.max(0.5, Math.round((this._interval - 0.5) * 2) / 2);
     if (this._playing && !this._scrubbing) this._startAdvance();
   }
 
@@ -290,10 +327,10 @@ class SlideshowCard extends LitElement {
 
   _extractDate(name) {
     if (!name) return '';
-    const m = name.match(/(\d{4})[-_](\d{2})[-_](\d{2})[-_ T](\d{2})[-_:](\d{2})(?:[-_:](\d{2}))?/);
+    const m = name.match(/(\d{4})[-_](\d{2})[-_](\d{2})[-_ T](\d{2})[-_:](\d{2})/);
     if (!m) return name;
-    const [, y, mo, d, h, mi, se] = m;
-    return `${d}.${mo}.${y} ${h}:${mi}${se ? ':' + se : ''}`;
+    const [, y, mo, d, h, mi] = m;
+    return `${d}.${mo}.${y} ${h}:${mi}`;
   }
 
   _togglePlay() {
@@ -453,19 +490,19 @@ class SlideshowCard extends LitElement {
                 <ha-icon icon="mdi:chevron-right"></ha-icon>
               </ha-icon-button>
               <span class="counter">${this._index + 1} / ${total}</span>
-              <input
-                class="speed"
-                type="range"
-                min="1"
-                max="15"
-                step="0.5"
-                .value=${String(this._interval)}
-                title=${`${this._interval}s pro Bild`}
-                @input=${this._onSpeedInput}
-                @pointerdown=${this._stop}
-                @click=${this._stop}
-              />
-              <span class="speed-label">${this._interval}s</span>
+              <span class="speed-stepper">
+                <ha-icon-button label="Langsamer"
+                  @pointerdown=${this._stop}
+                  @click=${(e) => this._slower(e)}>
+                  <ha-icon icon="mdi:chevron-left"></ha-icon>
+                </ha-icon-button>
+                <span class="speed-value">${this._interval}s</span>
+                <ha-icon-button label="Schneller"
+                  @pointerdown=${this._stop}
+                  @click=${(e) => this._faster(e)}>
+                  <ha-icon icon="mdi:chevron-right"></ha-icon>
+                </ha-icon-button>
+              </span>
               ${showDateInOverlay ? html`<span class="name">${label}</span>` : nothing}
               <ha-icon-button label="Vollbild"
                 @pointerdown=${this._stop}
@@ -585,7 +622,8 @@ class SlideshowCard extends LitElement {
     .name {
       margin-left: auto;
       opacity: 0.8;
-      max-width: 50%;
+      flex: 0 1 auto;
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -605,16 +643,19 @@ class SlideshowCard extends LitElement {
       text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
       pointer-events: none;
     }
-    .speed {
-      width: 70px;
-      margin: 0;
-      accent-color: var(--primary-color, #03a9f4);
-      cursor: pointer;
+    .speed-stepper {
+      display: inline-flex;
+      align-items: center;
     }
-    .speed-label {
+    .speed-stepper ha-icon-button {
+      --mdc-icon-button-size: 28px;
+      --mdc-icon-size: 18px;
+    }
+    .speed-value {
       font-variant-numeric: tabular-nums;
-      opacity: 0.75;
-      min-width: 32px;
+      min-width: 30px;
+      text-align: center;
+      opacity: 0.85;
     }
   `;
 }
