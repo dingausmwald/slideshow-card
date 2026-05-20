@@ -1,10 +1,10 @@
 import { LitElement, html, css, nothing } from 'lit';
 
-const CARD_VERSION = '0.5.0';
+const CARD_VERSION = '0.6.0';
 
 const PRELOAD_WINDOW = 2;
 const MAX_CONCURRENT = 2;
-const SCRUB_SCHEDULE_THROTTLE_MS = 150;
+const URL_RESOLVE_CONCURRENCY = 4;
 
 console.info(
   `%c slideshow-card %c ${CARD_VERSION} `,
@@ -47,7 +47,7 @@ class SlideshowCard extends LitElement {
     this._loadedIdx = new Set();  // idx of fully-loaded images (in browser cache)
     this._advanceTimer = null;
     this._controlsTimer = null;
-    this._scrubScheduleTimer = null;
+    this._scrubRaf = null;
     this._swipe = null;
   }
 
@@ -124,6 +124,7 @@ class SlideshowCard extends LitElement {
       if (items.length > 0) {
         this._scheduleLoads();
         this._startAdvance();
+        this._preResolveAll();
       }
     } catch (e) {
       this._loading = false;
@@ -139,6 +140,22 @@ class SlideshowCard extends LitElement {
     });
     this._urlCache.set(item.media_content_id, r.url);
     return r.url;
+  }
+
+  async _preResolveAll() {
+    const items = this._children;
+    const snapshot = items;
+    let cursor = 0;
+    const workers = Array(URL_RESOLVE_CONCURRENCY).fill(null).map(async () => {
+      while (cursor < snapshot.length && this._children === snapshot) {
+        const i = cursor++;
+        const item = snapshot[i];
+        if (!this._urlCache.has(item.media_content_id)) {
+          try { await this._resolveUrl(item); } catch {}
+        }
+      }
+    });
+    await Promise.all(workers);
   }
 
   _wishList() {
@@ -284,15 +301,12 @@ class SlideshowCard extends LitElement {
     if (idx === this._index) return;
     this._index = idx;
     this._maybeSwapLayer();
-    this._throttledScheduleLoads();
-  }
-
-  _throttledScheduleLoads() {
-    if (this._scrubScheduleTimer) return;
-    this._scrubScheduleTimer = setTimeout(() => {
-      this._scrubScheduleTimer = null;
-      this._scheduleLoads();
-    }, SCRUB_SCHEDULE_THROTTLE_MS);
+    if (this._scrubRaf === null) {
+      this._scrubRaf = requestAnimationFrame(() => {
+        this._scrubRaf = null;
+        this._scheduleLoads();
+      });
+    }
   }
 
   _onScrubChange(e) {
@@ -307,9 +321,9 @@ class SlideshowCard extends LitElement {
   }
 
   _onScrubEnd(e) {
-    if (this._scrubScheduleTimer) {
-      clearTimeout(this._scrubScheduleTimer);
-      this._scrubScheduleTimer = null;
+    if (this._scrubRaf !== null) {
+      cancelAnimationFrame(this._scrubRaf);
+      this._scrubRaf = null;
     }
     const idx = e?.target?.value !== undefined ? Number(e.target.value) : this._index;
     this._goTo(idx);
