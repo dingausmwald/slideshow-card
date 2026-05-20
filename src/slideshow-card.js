@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 
-const CARD_VERSION = '0.4.0';
+const CARD_VERSION = '0.4.1';
 
 const PRELOAD_WINDOW = 2;
 const MAX_CONCURRENT = 2;
@@ -255,11 +255,12 @@ class SlideshowCard extends LitElement {
   }
 
   _goTo(idx) {
-    if (idx === this._index || idx < 0 || idx >= this._children.length) return;
+    if (idx < 0 || idx >= this._children.length) return;
+    const wasNew = idx !== this._index;
     this._index = idx;
     this._scheduleLoads();
     this._maybeSwapLayer();
-    this._startAdvance();
+    if (wasNew) this._startAdvance();
   }
 
   _extractDate(name) {
@@ -290,17 +291,14 @@ class SlideshowCard extends LitElement {
 
   _onScrubStart(e) {
     e.stopPropagation();
-    this._scrubbing = true;
     this._wasPlayingBeforeScrub = this._playing;
     this._stopAdvance();
   }
 
-  _onScrubEnd() {
-    this._scrubbing = false;
-    if (this._wasPlayingBeforeScrub) {
-      this._playing = true;
-      this._startAdvance();
-    }
+  _onScrubEnd(e) {
+    const idx = e?.target?.value !== undefined ? Number(e.target.value) : this._index;
+    this._goTo(idx);
+    if (this._wasPlayingBeforeScrub) this._startAdvance();
   }
 
   _onPointerDown(e) {
