@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 
-const CARD_VERSION = '0.11.1';
+const CARD_VERSION = '0.12.0';
 
 
 console.info(
@@ -152,6 +152,7 @@ class SlideshowCard extends LitElement {
     this._loadGen++;
     this._loadInflight = false;
     this._loadingIdx = null;
+    this._pendingSwap = null;
   }
 
   async _doLoad() {
@@ -204,6 +205,14 @@ class SlideshowCard extends LitElement {
 
   _swapTo(idx) {
     if (idx === null || idx === undefined) return;
+    if (this._scrubbing) {
+      this._primaryIdx = idx;
+      this._transientIdx = null;
+      this._transientOpaque = false;
+      this._pendingSwap = null;
+      this.requestUpdate();
+      return;
+    }
     if (this._primaryIdx === null) {
       this._primaryIdx = idx;
       this.requestUpdate();
@@ -314,7 +323,10 @@ class SlideshowCard extends LitElement {
   _onScrubEnd(e) {
     this._scrubbing = false;
     const idx = e?.target?.value !== undefined ? Number(e.target.value) : this._index;
-    this._goTo(idx);
+    this._cancelLoad();
+    this._index = idx;
+    this._kickLoad();
+    this._maybeSwapLayer();
     if (this._wasPlayingBeforeScrub) {
       this._playing = true;
       this._startAdvance();
