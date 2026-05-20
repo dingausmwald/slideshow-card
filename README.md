@@ -23,6 +23,7 @@ interval: 3              # seconds per image (default 3)
 order: desc              # desc (newest first) or asc
 title: Diashow           # optional
 show_date: always        # always | hover | never (default always)
+window_days: 0           # 0 = all images, >0 = only the last N days based on filename date
 ```
 
 `folder` accepts any of:

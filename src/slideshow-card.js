@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 
-const CARD_VERSION = '0.15.2';
+const CARD_VERSION = '0.16.0';
 
 
 console.info(
@@ -61,6 +61,7 @@ class SlideshowCard extends LitElement {
       interval: 3,
       order: 'desc',
       show_date: 'always',
+      window_days: 0,
       ...config,
       folder: this._normalizeFolder(config.folder),
     };
@@ -118,6 +119,13 @@ class SlideshowCard extends LitElement {
         media_content_id: this._config.folder,
       });
       let items = (result.children || []).filter((c) => !c.can_expand && c.media_class === 'image');
+      if (this._config.window_days > 0) {
+        const cutoff = Date.now() - this._config.window_days * 86400000;
+        items = items.filter((c) => {
+          const ts = this._extractTimestamp(c.title);
+          return ts !== null && ts >= cutoff;
+        });
+      }
       if (this._config.order === 'asc') items.reverse();
       this._children = items;
       this._index = 0;
@@ -340,6 +348,13 @@ class SlideshowCard extends LitElement {
     if (!m) return name;
     const [, y, mo, d, h, mi] = m;
     return `${d}.${mo}.${y} ${h}:${mi}`;
+  }
+
+  _extractTimestamp(name) {
+    if (!name) return null;
+    const m = name.match(/(\d{4})[-_](\d{2})[-_](\d{2})[-_ T](\d{2})[-_:](\d{2})/);
+    if (!m) return null;
+    return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]).getTime();
   }
 
   _togglePlay() {
