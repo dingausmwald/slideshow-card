@@ -1,6 +1,9 @@
 import { LitElement, html, css, nothing } from 'lit';
 
-const CARD_VERSION = '0.2.0';
+const CARD_VERSION = '0.3.0';
+
+const PRELOAD_WINDOW = 2;
+const MAX_CONCURRENT = 2;
 
 console.info(
   `%c slideshow-card %c ${CARD_VERSION} `,
@@ -13,9 +16,9 @@ class SlideshowCard extends LitElement {
     hass: { attribute: false },
     _children: { state: true },
     _index: { state: true },
-    _layerAIdx: { state: true },
-    _layerBIdx: { state: true },
-    _topIsA: { state: true },
+    _primaryIdx: { state: true },
+    _transientIdx: { state: true },
+    _transientOpaque: { state: true },
     _playing: { state: true },
     _loading: { state: true },
     _error: { state: true },
@@ -26,14 +29,16 @@ class SlideshowCard extends LitElement {
     super();
     this._children = [];
     this._index = 0;
-    this._layerAIdx = null;
-    this._layerBIdx = null;
-    this._topIsA = true;
+    this._primaryIdx = null;
+    this._transientIdx = null;
+    this._transientOpaque = false;
     this._playing = true;
     this._loading = true;
     this._error = null;
     this._showControls = false;
     this._urlCache = new Map();
+    this._loadingIdx = new Map(); // idx → Image instance (abortable via .src='')
+    this._loadedIdx = new Set();  // idx of fully-loaded images (in browser cache)
     this._advanceTimer = null;
     this._controlsTimer = null;
     this._swipe = null;
@@ -101,15 +106,14 @@ class SlideshowCard extends LitElement {
       if (this._config.order === 'asc') items.reverse();
       this._children = items;
       this._index = 0;
-      this._layerAIdx = items.length > 0 ? 0 : null;
-      this._layerBIdx = null;
-      this._topIsA = true;
+      this._primaryIdx = null;
+      this._transientIdx = null;
+      this._transientOpaque = false;
+      this._loadingIdx.clear();
+      this._loadedIdx.clear();
       this._loading = false;
       if (items.length > 0) {
-        await this._resolve(0);
-        this._preload(1);
-        this._preload(items.length - 1);
-        this.requestUpdate();
+        this._scheduleLoads();
         this._startAdvance();
       }
     } catch (e) {
@@ -118,26 +122,105 @@ class SlideshowCard extends LitElement {
     }
   }
 
-  async _resolve(idx) {
-    const item = this._children[idx];
-    if (!item) return null;
+  async _resolveUrl(item) {
     if (this._urlCache.has(item.media_content_id)) return this._urlCache.get(item.media_content_id);
     const r = await this.hass.callWS({
       type: 'media_source/resolve_media',
       media_content_id: item.media_content_id,
     });
-    const url = r.url;
-    this._urlCache.set(item.media_content_id, url);
-    return url;
+    this._urlCache.set(item.media_content_id, r.url);
+    return r.url;
   }
 
-  async _preload(idx) {
-    if (idx < 0 || idx >= this._children.length) return;
-    const url = await this._resolve(idx);
-    if (!url) return;
+  _wishList() {
+    const center = this._index;
+    const total = this._children.length;
+    const list = [center];
+    for (let d = 1; d <= PRELOAD_WINDOW; d++) {
+      if (center + d < total) list.push(center + d);
+      if (center - d >= 0) list.push(center - d);
+    }
+    return list;
+  }
+
+  _scheduleLoads() {
+    if (this._children.length === 0) return;
+    const wish = this._wishList();
+    const wishSet = new Set(wish);
+    for (const [idx, img] of this._loadingIdx) {
+      if (!wishSet.has(idx)) {
+        img.src = '';
+        this._loadingIdx.delete(idx);
+      }
+    }
+    for (const idx of wish) {
+      if (this._loadingIdx.size >= MAX_CONCURRENT) break;
+      if (this._loadedIdx.has(idx)) continue;
+      if (this._loadingIdx.has(idx)) continue;
+      this._startLoad(idx);
+    }
+  }
+
+  async _startLoad(idx) {
+    const item = this._children[idx];
+    if (!item) return;
+    let url;
+    try {
+      url = await this._resolveUrl(item);
+    } catch {
+      return;
+    }
+    if (idx >= this._children.length || this._children[idx] !== item) return;
+    if (!this._wishList().includes(idx)) return;
     const img = new Image();
     img.decoding = 'async';
+    this._loadingIdx.set(idx, img);
+    img.onload = () => {
+      if (this._loadingIdx.get(idx) !== img) return;
+      this._loadingIdx.delete(idx);
+      this._loadedIdx.add(idx);
+      if (idx === this._index) this._maybeSwapLayer();
+      this._scheduleLoads();
+    };
+    img.onerror = () => {
+      if (this._loadingIdx.get(idx) !== img) return;
+      this._loadingIdx.delete(idx);
+      this._scheduleLoads();
+    };
     img.src = url;
+  }
+
+  _maybeSwapLayer() {
+    const idx = this._index;
+    if (!this._loadedIdx.has(idx)) return;
+    if (this._primaryIdx === null) {
+      this._primaryIdx = idx;
+      this.requestUpdate();
+      return;
+    }
+    if (this._primaryIdx === idx) return;
+    if (this._transientIdx !== null) {
+      this._primaryIdx = this._transientIdx;
+    }
+    this._transientIdx = idx;
+    this._transientOpaque = false;
+    this.requestUpdate();
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (this._transientIdx === idx) {
+        this._transientOpaque = true;
+        this.requestUpdate();
+      }
+    }));
+  }
+
+  _onTransitionEnd(e) {
+    if (e.propertyName !== 'opacity') return;
+    if (this._transientIdx === null) return;
+    if (!this._transientOpaque) return;
+    this._primaryIdx = this._transientIdx;
+    this._transientIdx = null;
+    this._transientOpaque = false;
+    this.requestUpdate();
   }
 
   _startAdvance() {
@@ -164,18 +247,11 @@ class SlideshowCard extends LitElement {
     this._goTo((this._index - 1 + this._children.length) % this._children.length);
   }
 
-  async _goTo(idx) {
+  _goTo(idx) {
     if (idx === this._index || idx < 0 || idx >= this._children.length) return;
-    await this._resolve(idx);
-    if (this._topIsA) {
-      this._layerBIdx = idx;
-    } else {
-      this._layerAIdx = idx;
-    }
-    this._topIsA = !this._topIsA;
     this._index = idx;
-    this._preload(idx + 1);
-    this._preload(idx - 1);
+    this._scheduleLoads();
+    this._maybeSwapLayer();
     this._startAdvance();
   }
 
@@ -234,22 +310,10 @@ class SlideshowCard extends LitElement {
     }, 2500);
   }
 
-  _renderLayer(idx, isTop) {
-    if (idx === null || idx === undefined) {
-      return html`<div class="layer ${isTop ? 'visible' : ''}"></div>`;
-    }
+  _imgUrlForIdx(idx) {
+    if (idx === null || idx === undefined) return null;
     const item = this._children[idx];
-    const url = item ? this._urlCache.get(item.media_content_id) : null;
-    if (!url) {
-      return html`<div class="layer ${isTop ? 'visible' : ''}"></div>`;
-    }
-    return html`<img
-      class="layer ${isTop ? 'visible' : ''}"
-      src=${url}
-      decoding="async"
-      draggable="false"
-      alt=""
-    />`;
+    return item ? this._urlCache.get(item.media_content_id) : null;
   }
 
   render() {
@@ -266,6 +330,8 @@ class SlideshowCard extends LitElement {
     const total = this._children.length;
     const current = this._children[this._index];
     const label = this._extractDate(current?.title);
+    const primaryUrl = this._imgUrlForIdx(this._primaryIdx);
+    const transientUrl = this._imgUrlForIdx(this._transientIdx);
     return html`
       <ha-card .header=${this._config.title || nothing}>
         <div
@@ -275,8 +341,19 @@ class SlideshowCard extends LitElement {
           @pointercancel=${this._onPointerCancel}
           @mousemove=${this._showControlsTransient}
         >
-          ${this._renderLayer(this._layerAIdx, this._topIsA)}
-          ${this._renderLayer(this._layerBIdx, !this._topIsA)}
+          ${primaryUrl
+            ? html`<img class="layer primary" src=${primaryUrl} decoding="async" draggable="false" alt="" />`
+            : nothing}
+          ${transientUrl
+            ? html`<img
+                class="layer transient ${this._transientOpaque ? 'opaque' : ''}"
+                src=${transientUrl}
+                decoding="async"
+                draggable="false"
+                alt=""
+                @transitionend=${this._onTransitionEnd}
+              />`
+            : nothing}
           <div class="overlay">
             <input
               class="scrub"
@@ -300,11 +377,24 @@ class SlideshowCard extends LitElement {
                 @click=${(e) => { e.stopPropagation(); this._next(); }}>›</button>
               <span class="counter">${this._index + 1} / ${total}</span>
               <span class="name">${label}</span>
+              <button class="ctrl fs" title="Vollbild"
+                @pointerdown=${this._stop}
+                @click=${(e) => { e.stopPropagation(); this._toggleFullscreen(); }}>⛶</button>
             </div>
           </div>
         </div>
       </ha-card>
     `;
+  }
+
+  async _toggleFullscreen() {
+    const el = this.renderRoot.querySelector('.viewport');
+    if (!el) return;
+    if (!document.fullscreenElement) {
+      try { await el.requestFullscreen(); } catch {}
+    } else {
+      try { await document.exitFullscreen(); } catch {}
+    }
   }
 
   static styles = css`
@@ -338,12 +428,28 @@ class SlideshowCard extends LitElement {
       width: 100%;
       height: 100%;
       object-fit: contain;
-      opacity: 0;
-      transition: opacity 0.5s ease;
       will-change: opacity;
     }
-    .layer.visible {
+    .layer.primary {
       opacity: 1;
+      z-index: 1;
+    }
+    .layer.transient {
+      opacity: 0;
+      transition: opacity 0.5s ease;
+      z-index: 2;
+    }
+    .layer.transient.opaque {
+      opacity: 1;
+    }
+    .viewport:fullscreen {
+      width: 100vw;
+      height: 100vh;
+      aspect-ratio: auto;
+    }
+    .viewport:-webkit-full-screen {
+      width: 100vw;
+      height: 100vh;
     }
     .overlay {
       position: absolute;
@@ -403,6 +509,11 @@ class SlideshowCard extends LitElement {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    .ctrl.fs {
+      margin-left: 4px;
+      font-size: 1.1rem;
     }
   `;
 }
