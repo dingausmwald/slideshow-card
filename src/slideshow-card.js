@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 
-const CARD_VERSION = '0.12.1';
+const CARD_VERSION = '0.13.0';
 
 
 console.info(
@@ -23,6 +23,7 @@ class SlideshowCard extends LitElement {
     _error: { state: true },
     _showControls: { state: true },
     _fullscreen: { state: true },
+    _interval: { state: true },
   };
 
   constructor() {
@@ -58,9 +59,11 @@ class SlideshowCard extends LitElement {
       title: '',
       interval: 3,
       order: 'desc',
+      show_date: 'hover',
       ...config,
       folder: this._normalizeFolder(config.folder),
     };
+    this._interval = this._config.interval;
   }
 
   _normalizeFolder(input) {
@@ -249,8 +252,16 @@ class SlideshowCard extends LitElement {
     this._stopAdvance();
     if (!this._playing) return;
     if (this._scrubbing) return;
-    const ms = Math.max(0.5, Number(this._config.interval) || 3) * 1000;
+    const ms = Math.max(0.5, Number(this._interval) || 3) * 1000;
     this._advanceTimer = setTimeout(() => this._next(), ms);
+  }
+
+  _onSpeedInput(e) {
+    e.stopPropagation();
+    const v = Number(e.target.value);
+    if (!Number.isFinite(v) || v <= 0) return;
+    this._interval = v;
+    if (this._playing && !this._scrubbing) this._startAdvance();
   }
 
   _stopAdvance() {
@@ -383,6 +394,9 @@ class SlideshowCard extends LitElement {
     const label = this._extractDate(current?.title);
     const primaryUrl = this._imgUrlForIdx(this._primaryIdx);
     const transientUrl = this._imgUrlForIdx(this._transientIdx);
+    const dateMode = this._config.show_date;
+    const showDateAlways = dateMode === 'always';
+    const showDateInOverlay = dateMode !== 'never' && dateMode !== 'always';
     return html`
       <ha-card .header=${this._config.title || nothing}>
         <div
@@ -404,6 +418,9 @@ class SlideshowCard extends LitElement {
                 alt=""
                 @transitionend=${this._onTransitionEnd}
               />`
+            : nothing}
+          ${showDateAlways && label
+            ? html`<div class="date-pin">${label}</div>`
             : nothing}
           <div class="overlay">
             <input
@@ -436,7 +453,20 @@ class SlideshowCard extends LitElement {
                 <ha-icon icon="mdi:chevron-right"></ha-icon>
               </ha-icon-button>
               <span class="counter">${this._index + 1} / ${total}</span>
-              <span class="name">${label}</span>
+              <input
+                class="speed"
+                type="range"
+                min="1"
+                max="15"
+                step="0.5"
+                .value=${String(this._interval)}
+                title=${`${this._interval}s pro Bild`}
+                @input=${this._onSpeedInput}
+                @pointerdown=${this._stop}
+                @click=${this._stop}
+              />
+              <span class="speed-label">${this._interval}s</span>
+              ${showDateInOverlay ? html`<span class="name">${label}</span>` : nothing}
               <ha-icon-button label="Vollbild"
                 @pointerdown=${this._stop}
                 @click=${(e) => { e.stopPropagation(); this._toggleFullscreen(); }}>
@@ -560,6 +590,31 @@ class SlideshowCard extends LitElement {
       text-overflow: ellipsis;
       white-space: nowrap;
       font-variant-numeric: tabular-nums;
+    }
+    .date-pin {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      z-index: 3;
+      padding: 4px 10px;
+      background: rgba(0, 0, 0, 0.55);
+      color: #fff;
+      font-size: 0.85rem;
+      font-variant-numeric: tabular-nums;
+      border-radius: 4px;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+      pointer-events: none;
+    }
+    .speed {
+      width: 70px;
+      margin: 0;
+      accent-color: var(--primary-color, #03a9f4);
+      cursor: pointer;
+    }
+    .speed-label {
+      font-variant-numeric: tabular-nums;
+      opacity: 0.75;
+      min-width: 32px;
     }
   `;
 }

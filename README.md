@@ -19,10 +19,18 @@ v0.1 — early. Reads, advances, swipes, scrubs.
 ```yaml
 type: custom:slideshow-card
 folder: media-source://media_source/local/cam_links
-interval: 3       # seconds per image (default 3)
-order: desc       # desc (newest first) or asc
-title: Diashow    # optional
+interval: 3              # seconds per image (default 3)
+order: desc              # desc (newest first) or asc
+title: Diashow           # optional
+show_date: hover         # always | hover | never (default hover)
 ```
+
+`folder` accepts any of:
+- `media-source://media_source/local/<subfolder>` (explicit)
+- `/media/<subfolder>` (auto-translated)
+- `<subfolder>` (bare name, treated as under /media/)
+
+In the overlay bar you also have a runtime speed slider (1–15 s) that overrides the configured `interval` for the session.
 
 ## Roadmap
 
