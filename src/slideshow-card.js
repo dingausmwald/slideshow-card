@@ -1,10 +1,7 @@
 import { LitElement, html, css, nothing } from 'lit';
 
-const CARD_VERSION = '0.6.0';
+const CARD_VERSION = '0.7.0';
 
-const PRELOAD_WINDOW = 2;
-const MAX_CONCURRENT = 2;
-const URL_RESOLVE_CONCURRENCY = 4;
 
 console.info(
   `%c slideshow-card %c ${CARD_VERSION} `,
@@ -47,7 +44,6 @@ class SlideshowCard extends LitElement {
     this._loadedIdx = new Set();  // idx of fully-loaded images (in browser cache)
     this._advanceTimer = null;
     this._controlsTimer = null;
-    this._scrubRaf = null;
     this._swipe = null;
   }
 
@@ -122,9 +118,8 @@ class SlideshowCard extends LitElement {
       this._loadedIdx.clear();
       this._loading = false;
       if (items.length > 0) {
-        this._scheduleLoads();
+        this._scheduleLoad();
         this._startAdvance();
-        this._preResolveAll();
       }
     } catch (e) {
       this._loading = false;
@@ -142,49 +137,17 @@ class SlideshowCard extends LitElement {
     return r.url;
   }
 
-  async _preResolveAll() {
-    const items = this._children;
-    const snapshot = items;
-    let cursor = 0;
-    const workers = Array(URL_RESOLVE_CONCURRENCY).fill(null).map(async () => {
-      while (cursor < snapshot.length && this._children === snapshot) {
-        const i = cursor++;
-        const item = snapshot[i];
-        if (!this._urlCache.has(item.media_content_id)) {
-          try { await this._resolveUrl(item); } catch {}
-        }
-      }
-    });
-    await Promise.all(workers);
-  }
-
-  _wishList() {
-    const center = this._index;
-    const total = this._children.length;
-    const list = [center];
-    for (let d = 1; d <= PRELOAD_WINDOW; d++) {
-      if (center + d < total) list.push(center + d);
-      if (center - d >= 0) list.push(center - d);
-    }
-    return list;
-  }
-
-  _scheduleLoads() {
+  _scheduleLoad() {
     if (this._children.length === 0) return;
-    const wish = this._wishList();
-    const wishSet = new Set(wish);
-    for (const [idx, img] of this._loadingIdx) {
-      if (!wishSet.has(idx)) {
+    const idx = this._index;
+    for (const [otherIdx, img] of this._loadingIdx) {
+      if (otherIdx !== idx) {
         img.src = '';
-        this._loadingIdx.delete(idx);
+        this._loadingIdx.delete(otherIdx);
       }
     }
-    for (const idx of wish) {
-      if (this._loadingIdx.size >= MAX_CONCURRENT) break;
-      if (this._loadedIdx.has(idx)) continue;
-      if (this._loadingIdx.has(idx)) continue;
-      this._startLoad(idx);
-    }
+    if (this._loadedIdx.has(idx) || this._loadingIdx.has(idx)) return;
+    this._startLoad(idx);
   }
 
   async _startLoad(idx) {
@@ -196,8 +159,7 @@ class SlideshowCard extends LitElement {
     } catch {
       return;
     }
-    if (idx >= this._children.length || this._children[idx] !== item) return;
-    if (!this._wishList().includes(idx)) return;
+    if (idx !== this._index || this._children[idx] !== item) return;
     const img = new Image();
     img.decoding = 'async';
     this._loadingIdx.set(idx, img);
@@ -206,12 +168,10 @@ class SlideshowCard extends LitElement {
       this._loadingIdx.delete(idx);
       this._loadedIdx.add(idx);
       if (idx === this._index) this._maybeSwapLayer();
-      this._scheduleLoads();
     };
     img.onerror = () => {
       if (this._loadingIdx.get(idx) !== img) return;
       this._loadingIdx.delete(idx);
-      this._scheduleLoads();
     };
     img.src = url;
   }
@@ -277,7 +237,7 @@ class SlideshowCard extends LitElement {
     if (idx < 0 || idx >= this._children.length) return;
     const wasNew = idx !== this._index;
     this._index = idx;
-    this._scheduleLoads();
+    this._scheduleLoad();
     this._maybeSwapLayer();
     if (wasNew) this._startAdvance();
   }
@@ -300,13 +260,8 @@ class SlideshowCard extends LitElement {
     const idx = Number(e.target.value);
     if (idx === this._index) return;
     this._index = idx;
+    this._scheduleLoad();
     this._maybeSwapLayer();
-    if (this._scrubRaf === null) {
-      this._scrubRaf = requestAnimationFrame(() => {
-        this._scrubRaf = null;
-        this._scheduleLoads();
-      });
-    }
   }
 
   _onScrubChange(e) {
@@ -321,10 +276,6 @@ class SlideshowCard extends LitElement {
   }
 
   _onScrubEnd(e) {
-    if (this._scrubRaf !== null) {
-      cancelAnimationFrame(this._scrubRaf);
-      this._scrubRaf = null;
-    }
     const idx = e?.target?.value !== undefined ? Number(e.target.value) : this._index;
     this._goTo(idx);
     if (this._wasPlayingBeforeScrub) this._startAdvance();
