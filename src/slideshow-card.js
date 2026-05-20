@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 
-const CARD_VERSION = '0.16.0';
+const CARD_VERSION = '0.17.0';
 
 
 console.info(
@@ -62,6 +62,7 @@ class SlideshowCard extends LitElement {
       order: 'desc',
       show_date: 'always',
       window_days: 0,
+      start_days: 0,
       ...config,
       folder: this._normalizeFolder(config.folder),
     };
@@ -129,6 +130,19 @@ class SlideshowCard extends LitElement {
       if (this._config.order === 'asc') items.reverse();
       this._children = items;
       this._index = 0;
+      if (this._config.window_days === 0 && this._config.start_days > 0 && items.length > 0) {
+        const cutoff = Date.now() - this._config.start_days * 86400000;
+        let bestIdx = -1;
+        let bestTs = Infinity;
+        for (let i = 0; i < items.length; i++) {
+          const ts = this._extractTimestamp(items[i].title);
+          if (ts !== null && ts >= cutoff && ts < bestTs) {
+            bestTs = ts;
+            bestIdx = i;
+          }
+        }
+        if (bestIdx >= 0) this._index = bestIdx;
+      }
       this._primaryIdx = null;
       this._transientIdx = null;
       this._transientOpaque = false;

@@ -23,7 +23,9 @@ interval: 3              # seconds per image (default 3)
 order: desc              # desc (newest first) or asc
 title: Diashow           # optional
 show_date: always        # always | hover | never (default always)
-window_days: 0           # 0 = all images, >0 = only the last N days based on filename date
+window_days: 0           # 0 = off, >0 = filter to only last N days (hard, others hidden)
+start_days: 0            # 0 = off, >0 = full archive but start playback at the N-day mark
+                         # ignored if window_days is set
 ```
 
 `folder` accepts any of:
