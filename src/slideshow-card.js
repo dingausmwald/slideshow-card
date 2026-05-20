@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 
-const CARD_VERSION = '0.12.0';
+const CARD_VERSION = '0.12.1';
 
 
 console.info(
@@ -205,14 +205,6 @@ class SlideshowCard extends LitElement {
 
   _swapTo(idx) {
     if (idx === null || idx === undefined) return;
-    if (this._scrubbing) {
-      this._primaryIdx = idx;
-      this._transientIdx = null;
-      this._transientOpaque = false;
-      this._pendingSwap = null;
-      this.requestUpdate();
-      return;
-    }
     if (this._primaryIdx === null) {
       this._primaryIdx = idx;
       this.requestUpdate();
