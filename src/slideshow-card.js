@@ -1,9 +1,10 @@
 import { LitElement, html, css, nothing } from 'lit';
 
-const CARD_VERSION = '0.4.1';
+const CARD_VERSION = '0.5.0';
 
 const PRELOAD_WINDOW = 2;
 const MAX_CONCURRENT = 2;
+const SCRUB_SCHEDULE_THROTTLE_MS = 150;
 
 console.info(
   `%c slideshow-card %c ${CARD_VERSION} `,
@@ -46,6 +47,7 @@ class SlideshowCard extends LitElement {
     this._loadedIdx = new Set();  // idx of fully-loaded images (in browser cache)
     this._advanceTimer = null;
     this._controlsTimer = null;
+    this._scrubScheduleTimer = null;
     this._swipe = null;
   }
 
@@ -282,6 +284,15 @@ class SlideshowCard extends LitElement {
     if (idx === this._index) return;
     this._index = idx;
     this._maybeSwapLayer();
+    this._throttledScheduleLoads();
+  }
+
+  _throttledScheduleLoads() {
+    if (this._scrubScheduleTimer) return;
+    this._scrubScheduleTimer = setTimeout(() => {
+      this._scrubScheduleTimer = null;
+      this._scheduleLoads();
+    }, SCRUB_SCHEDULE_THROTTLE_MS);
   }
 
   _onScrubChange(e) {
@@ -296,6 +307,10 @@ class SlideshowCard extends LitElement {
   }
 
   _onScrubEnd(e) {
+    if (this._scrubScheduleTimer) {
+      clearTimeout(this._scrubScheduleTimer);
+      this._scrubScheduleTimer = null;
+    }
     const idx = e?.target?.value !== undefined ? Number(e.target.value) : this._index;
     this._goTo(idx);
     if (this._wasPlayingBeforeScrub) this._startAdvance();
