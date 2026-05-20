@@ -1,6 +1,8 @@
 import { LitElement, html, css, nothing } from 'lit';
 
-const CARD_VERSION = '0.7.0';
+const CARD_VERSION = '0.8.0';
+
+const MAX_INFLIGHT = 6;
 
 
 console.info(
@@ -140,13 +142,13 @@ class SlideshowCard extends LitElement {
   _scheduleLoad() {
     if (this._children.length === 0) return;
     const idx = this._index;
-    for (const [otherIdx, img] of this._loadingIdx) {
-      if (otherIdx !== idx) {
-        img.src = '';
-        this._loadingIdx.delete(otherIdx);
-      }
-    }
     if (this._loadedIdx.has(idx) || this._loadingIdx.has(idx)) return;
+    while (this._loadingIdx.size >= MAX_INFLIGHT) {
+      const oldest = this._loadingIdx.keys().next().value;
+      const oldImg = this._loadingIdx.get(oldest);
+      if (oldImg) oldImg.src = '';
+      this._loadingIdx.delete(oldest);
+    }
     this._startLoad(idx);
   }
 
@@ -159,7 +161,7 @@ class SlideshowCard extends LitElement {
     } catch {
       return;
     }
-    if (idx !== this._index || this._children[idx] !== item) return;
+    if (this._children[idx] !== item) return;
     const img = new Image();
     img.decoding = 'async';
     this._loadingIdx.set(idx, img);
