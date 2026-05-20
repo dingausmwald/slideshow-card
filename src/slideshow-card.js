@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 
-const CARD_VERSION = '0.15.1';
+const CARD_VERSION = '0.15.2';
 
 
 console.info(
@@ -50,6 +50,7 @@ class SlideshowCard extends LitElement {
     this._scrubbing = false;
     this._advanceTimer = null;
     this._controlsTimer = null;
+    this._fadeFinalizeTimer = null;
     this._swipe = null;
   }
 
@@ -97,6 +98,7 @@ class SlideshowCard extends LitElement {
     super.disconnectedCallback();
     document.removeEventListener('fullscreenchange', this._onFullscreenChange);
     this._stopAdvance();
+    this._clearFadeFinalize();
     if (this._controlsTimer) clearTimeout(this._controlsTimer);
   }
 
@@ -223,19 +225,19 @@ class SlideshowCard extends LitElement {
     this._transientIdx = idx;
     this._transientOpaque = false;
     this.requestUpdate();
+    this._clearFadeFinalize();
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      if (this._transientIdx === idx) {
-        this._transientOpaque = true;
-        this.requestUpdate();
-      }
+      if (this._transientIdx !== idx) return;
+      this._transientOpaque = true;
+      this.requestUpdate();
+      this._fadeFinalizeTimer = setTimeout(() => this._finalizeFade(idx), 550);
     }));
   }
 
-  _onTransitionEnd(e) {
-    if (e.propertyName !== 'opacity') return;
-    if (this._transientIdx === null) return;
-    if (!this._transientOpaque) return;
-    this._primaryIdx = this._transientIdx;
+  _finalizeFade(idx) {
+    this._fadeFinalizeTimer = null;
+    if (this._transientIdx !== idx) return;
+    this._primaryIdx = idx;
     this._transientIdx = null;
     this._transientOpaque = false;
     this.requestUpdate();
@@ -245,6 +247,13 @@ class SlideshowCard extends LitElement {
       this._swapTo(next);
     } else {
       this._startAdvance();
+    }
+  }
+
+  _clearFadeFinalize() {
+    if (this._fadeFinalizeTimer) {
+      clearTimeout(this._fadeFinalizeTimer);
+      this._fadeFinalizeTimer = null;
     }
   }
 
@@ -453,7 +462,6 @@ class SlideshowCard extends LitElement {
                 decoding="async"
                 draggable="false"
                 alt=""
-                @transitionend=${this._onTransitionEnd}
               />`
             : nothing}
           ${showInfoPin
