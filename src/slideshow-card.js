@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 
-const CARD_VERSION = '0.15.0';
+const CARD_VERSION = '0.15.1';
 
 
 console.info(
@@ -493,15 +493,15 @@ class SlideshowCard extends LitElement {
                 <ha-icon icon="mdi:chevron-right"></ha-icon>
               </ha-icon-button>
               <span class="speed-stepper">
-                <ha-icon-button label="Langsamer"
-                  @pointerdown=${this._stop}
-                  @click=${(e) => this._slower(e)}>
-                  <ha-icon icon="mdi:chevron-left"></ha-icon>
-                </ha-icon-button>
-                <span class="speed-value">${this._interval}s</span>
                 <ha-icon-button label="Schneller"
                   @pointerdown=${this._stop}
                   @click=${(e) => this._faster(e)}>
+                  <ha-icon icon="mdi:chevron-left"></ha-icon>
+                </ha-icon-button>
+                <span class="speed-value">${this._interval}s</span>
+                <ha-icon-button label="Langsamer"
+                  @pointerdown=${this._stop}
+                  @click=${(e) => this._slower(e)}>
                   <ha-icon icon="mdi:chevron-right"></ha-icon>
                 </ha-icon-button>
               </span>
@@ -647,6 +647,7 @@ class SlideshowCard extends LitElement {
     .speed-stepper {
       display: inline-flex;
       align-items: center;
+      margin-right: auto;
     }
     .speed-stepper ha-icon-button {
       --mdc-icon-button-size: 28px;
