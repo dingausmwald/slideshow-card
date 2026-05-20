@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 
-const CARD_VERSION = '0.14.0';
+const CARD_VERSION = '0.15.0';
 
 
 console.info(
@@ -59,7 +59,7 @@ class SlideshowCard extends LitElement {
       title: '',
       interval: 3,
       order: 'desc',
-      show_date: 'hover',
+      show_date: 'always',
       ...config,
       folder: this._normalizeFolder(config.folder),
     };
@@ -432,8 +432,8 @@ class SlideshowCard extends LitElement {
     const primaryUrl = this._imgUrlForIdx(this._primaryIdx);
     const transientUrl = this._imgUrlForIdx(this._transientIdx);
     const dateMode = this._config.show_date;
-    const showDateAlways = dateMode === 'always';
-    const showDateInOverlay = dateMode !== 'never' && dateMode !== 'always';
+    const showInfoPin = dateMode !== 'never';
+    const infoPinAlways = dateMode === 'always';
     return html`
       <ha-card .header=${this._config.title || nothing}>
         <div
@@ -456,8 +456,11 @@ class SlideshowCard extends LitElement {
                 @transitionend=${this._onTransitionEnd}
               />`
             : nothing}
-          ${showDateAlways && label
-            ? html`<div class="date-pin">${label}</div>`
+          ${showInfoPin
+            ? html`<div class="info-pin ${infoPinAlways ? '' : 'hover-only'}">
+                ${label ? html`<span class="info-date">${label}</span>` : nothing}
+                <span class="info-count">${this._index + 1} / ${total}</span>
+              </div>`
             : nothing}
           <div class="overlay">
             <input
@@ -489,7 +492,6 @@ class SlideshowCard extends LitElement {
                 @click=${(e) => { e.stopPropagation(); this._next(); }}>
                 <ha-icon icon="mdi:chevron-right"></ha-icon>
               </ha-icon-button>
-              <span class="counter">${this._index + 1} / ${total}</span>
               <span class="speed-stepper">
                 <ha-icon-button label="Langsamer"
                   @pointerdown=${this._stop}
@@ -503,7 +505,6 @@ class SlideshowCard extends LitElement {
                   <ha-icon icon="mdi:chevron-right"></ha-icon>
                 </ha-icon-button>
               </span>
-              ${showDateInOverlay ? html`<span class="name">${label}</span>` : nothing}
               <ha-icon-button label="Vollbild"
                 @pointerdown=${this._stop}
                 @click=${(e) => { e.stopPropagation(); this._toggleFullscreen(); }}>
@@ -616,24 +617,13 @@ class SlideshowCard extends LitElement {
       font-size: 0.8rem;
       text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
     }
-    .counter {
-      font-variant-numeric: tabular-nums;
-    }
-    .name {
-      margin-left: auto;
-      opacity: 0.8;
-      flex: 0 1 auto;
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-variant-numeric: tabular-nums;
-    }
-    .date-pin {
+    .info-pin {
       position: absolute;
       top: 8px;
-      left: 8px;
+      right: 8px;
       z-index: 3;
+      display: flex;
+      gap: 10px;
       padding: 4px 10px;
       background: rgba(0, 0, 0, 0.55);
       color: #fff;
@@ -642,6 +632,17 @@ class SlideshowCard extends LitElement {
       border-radius: 4px;
       text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
       pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+    .info-pin.hover-only {
+      opacity: 0;
+    }
+    .viewport.show .info-pin.hover-only,
+    .viewport:hover .info-pin.hover-only {
+      opacity: 1;
+    }
+    .info-count {
+      opacity: 0.85;
     }
     .speed-stepper {
       display: inline-flex;

@@ -22,7 +22,7 @@ folder: media-source://media_source/local/cam_links
 interval: 3              # seconds per image (default 3)
 order: desc              # desc (newest first) or asc
 title: Diashow           # optional
-show_date: hover         # always | hover | never (default hover)
+show_date: always        # always | hover | never (default always)
 ```
 
 `folder` accepts any of:
