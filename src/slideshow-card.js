@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 
-const CARD_VERSION = '0.9.0';
+const CARD_VERSION = '0.9.1';
 
 
 console.info(
@@ -178,14 +178,17 @@ class SlideshowCard extends LitElement {
     this._loadInflight = false;
     if (img.naturalWidth > 0) {
       this._loadedIdx.add(idx);
-      if (idx === this._index) this._maybeSwapLayer();
+      this._swapTo(idx);
     }
     if (this._index !== idx) this._doLoad();
   }
 
   _maybeSwapLayer() {
-    const idx = this._index;
-    if (!this._loadedIdx.has(idx)) return;
+    if (this._loadedIdx.has(this._index)) this._swapTo(this._index);
+  }
+
+  _swapTo(idx) {
+    if (idx === null || idx === undefined) return;
     if (this._primaryIdx === null) {
       this._primaryIdx = idx;
       this.requestUpdate();
