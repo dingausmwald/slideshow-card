@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 
-const CARD_VERSION = '0.3.1';
+const CARD_VERSION = '0.4.0';
 
 const PRELOAD_WINDOW = 2;
 const MAX_CONCURRENT = 2;
@@ -276,9 +276,31 @@ class SlideshowCard extends LitElement {
     else this._stopAdvance();
   }
 
-  _onSliderInput(e) {
+  _onScrubInput(e) {
+    const idx = Number(e.target.value);
+    if (idx === this._index) return;
+    this._index = idx;
+    this._maybeSwapLayer();
+  }
+
+  _onScrubChange(e) {
     const idx = Number(e.target.value);
     this._goTo(idx);
+  }
+
+  _onScrubStart(e) {
+    e.stopPropagation();
+    this._scrubbing = true;
+    this._wasPlayingBeforeScrub = this._playing;
+    this._stopAdvance();
+  }
+
+  _onScrubEnd() {
+    this._scrubbing = false;
+    if (this._wasPlayingBeforeScrub) {
+      this._playing = true;
+      this._startAdvance();
+    }
   }
 
   _onPointerDown(e) {
@@ -368,8 +390,11 @@ class SlideshowCard extends LitElement {
               min="0"
               max=${total - 1}
               .value=${String(this._index)}
-              @input=${this._onSliderInput}
-              @pointerdown=${this._stop}
+              @input=${this._onScrubInput}
+              @change=${this._onScrubChange}
+              @pointerdown=${this._onScrubStart}
+              @pointerup=${this._onScrubEnd}
+              @pointercancel=${this._onScrubEnd}
               @click=${this._stop}
             />
             <div class="bar">
