@@ -1,0 +1,22 @@
+{
+  "name": "slideshow-card",
+  "version": "0.1.0",
+  "description": "Photo slideshow card for Home Assistant",
+  "main": "dist/slideshow-card.js",
+  "module": "dist/slideshow-card.js",
+  "type": "module",
+  "scripts": {
+    "build": "rollup -c",
+    "watch": "rollup -c --watch"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "lit": "^3.2.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^28.0.1",
+    "@rollup/plugin-node-resolve": "^15.3.0",
+    "@rollup/plugin-terser": "^0.4.4",
+    "rollup": "^4.27.4"
+  }
+}
