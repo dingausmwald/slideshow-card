@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 
-const CARD_VERSION = '0.17.0';
+const CARD_VERSION = '0.18.0';
 
 
 console.info(
@@ -79,11 +79,16 @@ class SlideshowCard extends LitElement {
   }
 
   static getConfigElement() {
-    return null;
+    return document.createElement('slideshow-card-editor');
   }
 
   static getStubConfig() {
-    return { folder: 'media-source://media_source/local/' };
+    return {
+      folder: '/media/',
+      interval: 3,
+      order: 'desc',
+      show_date: 'always',
+    };
   }
 
   getCardSize() {
@@ -700,6 +705,98 @@ class SlideshowCard extends LitElement {
 }
 
 customElements.define('slideshow-card', SlideshowCard);
+
+const EDITOR_SCHEMA = [
+  { name: 'folder', required: true, selector: { text: {} } },
+  { name: 'title', selector: { text: {} } },
+  {
+    name: 'interval',
+    selector: { number: { min: 0.5, max: 30, step: 0.5, mode: 'box', unit_of_measurement: 's' } },
+  },
+  {
+    name: 'order',
+    selector: {
+      select: {
+        options: [
+          { value: 'desc', label: 'oldest → newest (chronological)' },
+          { value: 'asc', label: 'newest → oldest (reverse)' },
+        ],
+      },
+    },
+  },
+  {
+    name: 'show_date',
+    selector: {
+      select: {
+        options: [
+          { value: 'always', label: 'Always' },
+          { value: 'hover', label: 'On hover' },
+          { value: 'never', label: 'Hidden' },
+        ],
+      },
+    },
+  },
+  {
+    name: 'window_days',
+    selector: { number: { min: 0, max: 365, step: 1, mode: 'box', unit_of_measurement: 'd' } },
+  },
+  {
+    name: 'start_days',
+    selector: { number: { min: 0, max: 365, step: 1, mode: 'box', unit_of_measurement: 'd' } },
+  },
+];
+
+const EDITOR_LABELS = {
+  folder: 'Folder (e.g. /media/cam_links or media-source://...)',
+  title: 'Title (optional)',
+  interval: 'Default interval per image',
+  order: 'Playback order',
+  show_date: 'Date / counter overlay',
+  window_days: 'Filter to last N days (0 = off)',
+  start_days: 'Start at N days back, full archive (0 = off)',
+};
+
+class SlideshowCardEditor extends LitElement {
+  static properties = {
+    hass: { attribute: false },
+    _config: { state: true },
+  };
+
+  setConfig(config) {
+    this._config = config;
+  }
+
+  _valueChanged(ev) {
+    ev.stopPropagation();
+    const newConfig = ev.detail.value;
+    this.dispatchEvent(
+      new CustomEvent('config-changed', {
+        detail: { config: newConfig },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
+  _computeLabel(schema) {
+    return EDITOR_LABELS[schema.name] || schema.name;
+  }
+
+  render() {
+    if (!this._config) return html``;
+    return html`
+      <ha-form
+        .hass=${this.hass}
+        .data=${this._config}
+        .schema=${EDITOR_SCHEMA}
+        .computeLabel=${this._computeLabel}
+        @value-changed=${this._valueChanged}
+      ></ha-form>
+    `;
+  }
+}
+
+customElements.define('slideshow-card-editor', SlideshowCardEditor);
 
 window.customCards = window.customCards || [];
 window.customCards.push({
